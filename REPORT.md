@@ -184,3 +184,66 @@ The comparison function tells qsort() how to order two elements.
 Its signature int compare(const void *a, const void *b) allows generic sorting of any data type.
 The parameters are const void * because they represent pointers to constant data of unknown type, ensuring the comparison function does not alter the data.
 The function returns a negative value if a < b, zero if equal, and positive if a > b.
+
+## Feature 06: Colorized Output
+
+### 1. How do ANSI escape codes work to produce color in a standard Linux terminal?
+
+ANSI escape codes are special sequences of characters that control the formatting, color, and other output options on text terminals.
+They start with the escape character \033 (or \x1B), followed by a [ and then a series of parameters ending with a letter that specifies the action.
+
+For example, to set text color, the format is:
+
+\033[<code>m
+
+
+\033[ – starts the escape sequence
+
+<code> – specifies the color or formatting
+
+m – ends the sequence (for text attributes)
+
+Example: To print text in green, you use the code 32 for foreground green.
+
+printf("\033[32mThis text is green!\033[0m\n");
+
+
+\033[32m → starts green text
+
+\033[0m → resets to normal (removes color effect)
+
+Some common color codes:
+
+Color	Code
+Black	30
+Red	31
+Green	32
+Yellow	33
+Blue	34
+Magenta	35
+Cyan	36
+White	37
+
+### 2. Which bits in st_mode determine if a file is executable by owner, group, or others?
+
+The st_mode field (from struct stat) contains permission bits that describe file type and access rights.
+
+To determine if a file is executable, you check these bits:
+
+Executable by	Bit Macro	Octal Value	Meaning
+Owner	S_IXUSR	0100	Execute permission for file owner
+Group	S_IXGRP	0010	Execute permission for group members
+Others	S_IXOTH	0001	Execute permission for everyone else
+
+Example in C:
+
+struct stat fileStat;
+stat(filename, &fileStat);
+
+if (fileStat.st_mode & S_IXUSR)
+    printf("Executable by owner\n");
+if (fileStat.st_mode & S_IXGRP)
+    printf("Executable by group\n");
+if (fileStat.st_mode & S_IXOTH)
+    printf("Executable by others\n");
+
