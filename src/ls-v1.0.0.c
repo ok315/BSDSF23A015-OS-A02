@@ -1,12 +1,14 @@
 /*
-* Programming Assignment 02: ls-v1.1.0
-* Feature Added: Long Listing Format (-l)
-* Usage:
-*       $ ./ls-v1.1.0
-*       $ ./ls-v1.1.0 -l
-*       $ ./ls-v1.1.0 /home /etc
-*       $ ./ls-v1.1.0 -l /home /etc
-*/
+ * Programming Assignment 02: ls-v1.1.0
+ * Feature Added: Long Listing Format (-l)
+ * Usage:
+ *       $ ./ls-v1.1.0
+ *       $ ./ls-v1.1.0 -l
+ *       $ ./ls-v1.1.0 /home /etc
+ *       $ ./ls-v1.1.0 -l /home /etc
+ */
+
+#define _XOPEN_SOURCE 700 /* for lstat, readlink, and templated functions */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,40 +20,135 @@
 #include <time.h>
 #include <pwd.h>
 #include <grp.h>
-
-extern int errno;
+#include <stdbool.h>
+#include <limits.h>
+#include <sys/types.h>
 
 int long_listing = 0;  // global flag
 
 void do_ls(const char *dir);
 void print_long_format(const char *path, const char *filename);
+bool is_dir(const char *path);
 
-int main(int argc, char const *argv[])
+/* Convert mode to the first character (file type) */
+char file_type_char(mode_t mode) {
+    if (S_ISREG(mode)) return '-';
+    if (S_ISDIR(mode)) return 'd';
+    if (S_ISLNK(mode)) return 'l';
+    if (S_ISCHR(mode)) return 'c';
+    if (S_ISBLK(mode)) return 'b';
+    if (S_ISFIFO(mode)) return 'p';
+    if (S_ISSOCK(mode)) return 's';
+    return '?';
+}
+
+/* Format the rwx string including suid/sgid/sticky bits */
+void format_permissions(mode_t mode, char out[11]) {
+    out[0] = file_type_char(mode);
+
+    out[1] = (mode & S_IRUSR) ? 'r' : '-';
+    out[2] = (mode & S_IWUSR) ? 'w' : '-';
+    /* user exec and suid handling */
+    if (mode & S_ISUID) {
+        out[3] = (mode & S_IXUSR) ? 's' : 'S';
+    } else {
+        out[3] = (mode & S_IXUSR) ? 'x' : '-';
+    }
+
+    out[4] = (mode & S_IRGRP) ? 'r' : '-';
+    out[5] = (mode & S_IWGRP) ? 'w' : '-';
+    /* group exec and sgid handling */
+    if (mode & S_ISGID) {
+        out[6] = (mode & S_IXGRP) ? 's' : 'S';
+    } else {
+        out[6] = (mode & S_IXGRP) ? 'x' : '-';
+    }
+
+    out[7] = (mode & S_IROTH) ? 'r' : '-';
+    out[8] = (mode & S_IWOTH) ? 'w' : '-';
+    /* others exec and sticky handling */
+    if (mode & S_ISVTX) {
+        out[9] = (mode & S_IXOTH) ? 't' : 'T';
+    } else {
+        out[9] = (mode & S_IXOTH) ? 'x' : '-';
+    }
+
+    out[10] = '\0';
+}
+
+int main(int argc, char *argv[])
 {
-    // Check if -l option is passed
-    int start_index = 1;
-    if (argc > 1 && strcmp(argv[1], "-l") == 0)
-    {
-        long_listing = 1;
-        start_index = 2;
+    int opt;
+    /* parse options anywhere in argv */
+    while ((opt = getopt(argc, argv, "l")) != -1) {
+        switch (opt) {
+            case 'l':
+                long_listing = 1;
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-l] [file...]\n", argv[0]);
+                return 1;
+        }
     }
 
-    // Default directory if none provided
-    if (argc == 1 || (argc == 2 && long_listing))
-    {
-        do_ls(".");
-    }
-    else
-    {
-        for (int i = start_index; i < argc; i++)
-        {
-            printf("Directory listing of %s:\n", argv[i]);
-            do_ls(argv[i]);
-            puts("");
+    int first_arg = optind;
+
+    /* If no paths provided, use current directory */
+    if (first_arg >= argc) {
+        if (long_listing) {
+            /* if long listing for current directory */
+            do_ls(".");
+        } else {
+            do_ls("."); /* existing simple listing uses do_ls */
+        }
+    } else {
+        bool multiple = (argc - first_arg > 1);
+        for (int i = first_arg; i < argc; ++i) {
+            const char *path = argv[i];
+
+            if (multiple) {
+                printf("%s:\n", path);
+            }
+
+            /* If argument is a directory, list its contents; otherwise, print the file's long line or name */
+            if (is_dir(path)) {
+                do_ls(path);
+            } else {
+                /* Path is a file (or non-directory) — print one line */
+                if (long_listing) {
+                    /* We pass the directory part as '.' and filename as path for simplicity */
+                    /* But better: split dirname and basename. We'll print directly using print_long_format with path as directory and filename as basename */
+                    char *dup = strdup(path);
+                    if (!dup) {
+                        perror("strdup");
+                        continue;
+                    }
+                    char *base = strrchr(dup, '/');
+                    if (base) {
+                        *base = '\0';
+                        base++;
+                        print_long_format(dup[0] ? dup : "/", base);
+                    } else {
+                        print_long_format(".", dup);
+                    }
+                    free(dup);
+                } else {
+                    printf("%s\n", path);
+                }
+            }
+
+            if (multiple && i < argc - 1) puts("");
         }
     }
 
     return 0;
+}
+
+/* Helper: return true if path is directory */
+bool is_dir(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) == -1) return false;
+    return S_ISDIR(st.st_mode);
 }
 
 void do_ls(const char *dir)
@@ -69,7 +166,7 @@ void do_ls(const char *dir)
 
     while ((entry = readdir(dp)) != NULL)
     {
-        // Skip hidden files
+        /* Skip hidden files ('.*') for now — -a not implemented yet */
         if (entry->d_name[0] == '.')
             continue;
 
@@ -89,44 +186,53 @@ void do_ls(const char *dir)
 
 void print_long_format(const char *path, const char *filename)
 {
-    struct stat fileStat;
-    char fullpath[1024];
-    snprintf(fullpath, sizeof(fullpath), "%s/%s", path, filename);
+    struct stat st;
+    char fullpath[PATH_MAX];
+    if (strcmp(path, "/") == 0)
+        snprintf(fullpath, sizeof(fullpath), "/%s", filename);
+    else
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", path, filename);
 
-    if (stat(fullpath, &fileStat) == -1)
+    if (lstat(fullpath, &st) == -1)
     {
-        perror("stat");
+        fprintf(stderr, "stat error on %s: %s\n", fullpath, strerror(errno));
         return;
     }
 
-    // File type and permissions
-    printf( (S_ISDIR(fileStat.st_mode)) ? "d" : "-");
-    printf( (fileStat.st_mode & S_IRUSR) ? "r" : "-");
-    printf( (fileStat.st_mode & S_IWUSR) ? "w" : "-");
-    printf( (fileStat.st_mode & S_IXUSR) ? "x" : "-");
-    printf( (fileStat.st_mode & S_IRGRP) ? "r" : "-");
-    printf( (fileStat.st_mode & S_IWGRP) ? "w" : "-");
-    printf( (fileStat.st_mode & S_IXGRP) ? "x" : "-");
-    printf( (fileStat.st_mode & S_IROTH) ? "r" : "-");
-    printf( (fileStat.st_mode & S_IWOTH) ? "w" : "-");
-    printf( (fileStat.st_mode & S_IXOTH) ? "x" : "-");
+    /* Permissions and file type */
+    char perms[11];
+    format_permissions(st.st_mode, perms);
+    printf("%s ", perms);
 
-    // Links
-    printf(" %ld ", fileStat.st_nlink);
+    /* Link count */
+    printf("%3lu ", (unsigned long)st.st_nlink);
 
-    // Owner and group names
-    struct passwd *pw = getpwuid(fileStat.st_uid);
-    struct group *gr = getgrgid(fileStat.st_gid);
-    printf("%s %s ", pw ? pw->pw_name : "unknown", gr ? gr->gr_name : "unknown");
+    /* Owner and group */
+    struct passwd *pw = getpwuid(st.st_uid);
+    struct group  *gr = getgrgid(st.st_gid);
+    printf("%-8s %-8s ", pw ? pw->pw_name : "unknown", gr ? gr->gr_name : "unknown");
 
-    // Size
-    printf("%5ld ", fileStat.st_size);
+    /* Size */
+    printf("%8lld ", (long long)st.st_size);
 
-    // Modification time
+    /* Time: use abbreviated month, day, and HH:MM (simple) */
     char timebuf[64];
-    strftime(timebuf, sizeof(timebuf), "%b %d %H:%M", localtime(&fileStat.st_mtime));
+    struct tm *t = localtime(&st.st_mtime);
+    strftime(timebuf, sizeof(timebuf), "%b %e %H:%M", t);
     printf("%s ", timebuf);
 
-    // File name
-    printf("%s\n", filename);
+    /* Name */
+    printf("%s", filename);
+
+    /* If symbolic link, append -> target */
+    if (S_ISLNK(st.st_mode)) {
+        char linktarget[PATH_MAX];
+        ssize_t len = readlink(fullpath, linktarget, sizeof(linktarget) - 1);
+        if (len != -1) {
+            linktarget[len] = '\0';
+            printf(" -> %s", linktarget);
+        }
+    }
+
+    printf("\n");
 }
