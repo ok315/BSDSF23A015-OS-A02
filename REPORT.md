@@ -1,21 +1,26 @@
-# REPORT.md — Feature 1: Project Setup and Initial Build
+## Feature 2: Long Listing Format (-l) - Report Questions
 
-## Objective:
-Set up the project structure for re-implementing the `ls` command using the provided starter code and build system.
+### 1. Difference between `stat()` and `lstat()` system calls:
+The crucial difference between `stat()` and `lstat()` lies in how they handle symbolic links:
+- `stat()` returns information about the file the symbolic link points to (the target).
+- `lstat()` returns information about the symbolic link itself.
 
-## Tasks Completed:
+In the context of the `ls` command, it is more appropriate to use `lstat()` when you want to display information about the symbolic link rather than its target, especially to distinguish links from regular files or directories in the long listing format.
 
-- ✅ Created a new GitHub repository: `BSDSF23A015-OS-A02`.
-- ✅ Cloned the repo locally using `git clone`.
-- ✅ Copied the following files from the instructor's starter project:
-  - `src/ls-v1.0.0.c`
-  - `Makefile`
-- ✅ Created required directories: `bin/`, `obj/`, `man/`.
-- ✅ Created an empty `REPORT.md` file (now updated with this content).
-- ✅ Successfully compiled the code using the provided `Makefile`.
-- ✅ Verified the compiled program runs:
-  - `./bin/ls` correctly lists files in the current directory.
-  - `./bin/ls -l` displays long listing format.
-  - `./bin/ls -a` and `-R` are not supported yet (will be implemented in later features).
+---
 
-## Output Sample:
+### 2. Extracting file type and permission bits from `st_mode`:
+
+The `st_mode` field in the `struct stat` contains both the file type and permission bits encoded as bitfields.
+
+- To extract the **file type**, you can use bitwise AND (`&`) with the `S_IFMT` mask, then compare it with file type macros like:
+  - `S_IFDIR` (directory)
+  - `S_IFREG` (regular file)
+  - `S_IFLNK` (symbolic link)
+  - and others...
+
+Example:
+```c
+if ((fileStat.st_mode & S_IFMT) == S_IFDIR) {
+    // It's a directory
+}
