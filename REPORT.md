@@ -52,3 +52,56 @@ Wasted space when running in wider terminals, making the output less efficient.
 Wrapping or truncated output in narrower terminals, causing readability problems.
 
 Dynamic detection ensures a better user experience across various terminal environments.
+
+##Feature 4: Multi-Column Display (-x)
+### 1. Comparison of Implementation Complexity
+
+The “down-then-across” (vertical) printing logic is more complex than the “across” (horizontal) printing logic.
+
+In the vertical layout (default mode), the program needs to:
+
+Compute both the number of rows and columns.
+
+Arrange filenames in a column-major order (down each column first, then across).
+
+Handle uneven divisions when files don’t fit perfectly into the grid.
+
+Perform index calculations such as:
+
+idx = c * rows + r;
+
+
+These steps require more pre-calculation and indexing logic.
+
+In contrast, the horizontal layout (using -x) prints files left to right, wrapping lines when reaching terminal width.
+It only needs the number of columns and uses straightforward, sequential printing logic.
+
+✅ Conclusion:
+The vertical (down-then-across) method requires more pre-calculation because it involves computing both rows and columns, while the horizontal (across) layout only depends on column width.
+
+### 2. Display Mode Management Strategy
+
+The program uses flag variables and conditional logic to manage the three display modes (-l, -x, and default).
+
+During command-line argument parsing:
+
+int long_listing = 0;
+int horizontal_mode = 0;
+
+while ((opt = getopt(argc, argv, "lx")) != -1) {
+    switch (opt) {
+        case 'l': long_listing = 1; break;
+        case 'x': horizontal_mode = 1; break;
+    }
+}
+
+
+After parsing:
+
+If -l is active → program calls print_long_format() for detailed listings.
+
+If -x is active → program calls print_horizontal() for left-to-right display.
+
+Otherwise → program calls the default vertical printing (print_vertical() or similar logic).
+
+This structure allows the program to decide dynamically which function to execute based on the active display flag, keeping the code clean and modular.
