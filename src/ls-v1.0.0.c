@@ -1,11 +1,14 @@
 /*
- * Programming Assignment 02: ls-v1.1.0
- * Feature Added: Long Listing Format (-l)
+ * Programming Assignment 02: ls-v1.2.0
+ * Features:
+ *  - v1.1.0: Long listing (-l) (kept)
+ *  - v1.2.0: Default multi-column display (down then across)
+ *
  * Usage:
- *       $ ./ls-v1.1.0
- *       $ ./ls-v1.1.0 -l
- *       $ ./ls-v1.1.0 /home /etc
- *       $ ./ls-v1.1.0 -l /home /etc
+ *       $ ./ls
+ *       $ ./ls -l
+ *       $ ./ls /some/path
+ *       $ ./ls -l /some/path
  */
 
 #define _XOPEN_SOURCE 700 /* for lstat, readlink, and templated functions */
@@ -23,6 +26,8 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>   /* ioctl, winsize */
+#include <sys/termios.h> /* optional */
 
 int long_listing = 0;  // global flag
 
@@ -95,12 +100,7 @@ int main(int argc, char *argv[])
 
     /* If no paths provided, use current directory */
     if (first_arg >= argc) {
-        if (long_listing) {
-            /* if long listing for current directory */
-            do_ls(".");
-        } else {
-            do_ls("."); /* existing simple listing uses do_ls */
-        }
+        do_ls(".");
     } else {
         bool multiple = (argc - first_arg > 1);
         for (int i = first_arg; i < argc; ++i) {
@@ -116,8 +116,6 @@ int main(int argc, char *argv[])
             } else {
                 /* Path is a file (or non-directory) — print one line */
                 if (long_listing) {
-                    /* We pass the directory part as '.' and filename as path for simplicity */
-                    /* But better: split dirname and basename. We'll print directly using print_long_format with path as directory and filename as basename */
                     char *dup = strdup(path);
                     if (!dup) {
                         perror("strdup");
@@ -151,6 +149,23 @@ bool is_dir(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+/* Simple comparator for alphabetical sort */
+static int name_cmp(const void *a, const void *b) {
+    const char * const *sa = a;
+    const char * const *sb = b;
+    return strcmp(*sa, *sb);
+}
+
+/* Get terminal width in columns; fallback to 80 on failure */
+static int get_terminal_width(void) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
+        if (ws.ws_col > 0) return ws.ws_col;
+    }
+    return 80; /* fallback */
+}
+
+/* ---- Updated do_ls: gather filenames, compute columns, print down-then-across ---- */
 void do_ls(const char *dir)
 {
     struct dirent *entry;
@@ -162,26 +177,112 @@ void do_ls(const char *dir)
         return;
     }
 
-    errno = 0;
+    /* If long listing is requested, keep original behavior: */
+    if (long_listing) {
+        errno = 0;
+        while ((entry = readdir(dp)) != NULL) {
+            if (entry->d_name[0] == '.')
+                continue;
+            print_long_format(dir, entry->d_name);
+        }
+        if (errno != 0) {
+            perror("readdir failed");
+        }
+        closedir(dp);
+        return;
+    }
 
-    while ((entry = readdir(dp)) != NULL)
-    {
-        /* Skip hidden files ('.*') for now — -a not implemented yet */
+    /* ---- Default behavior: gather filenames first ---- */
+    int capacity = 64;
+    int count = 0;
+    int max_len = 0;
+    char **names = malloc(capacity * sizeof(char *));
+    if (!names) {
+        perror("malloc");
+        closedir(dp);
+        return;
+    }
+
+    errno = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        /* Skip hidden files (no -a yet) */
         if (entry->d_name[0] == '.')
             continue;
 
-        if (long_listing)
-            print_long_format(dir, entry->d_name);
-        else
-            printf("%s\n", entry->d_name);
+        if (count >= capacity) {
+            capacity *= 2;
+            char **tmp = realloc(names, capacity * sizeof(char *));
+            if (!tmp) {
+                perror("realloc");
+                for (int i = 0; i < count; ++i) free(names[i]);
+                free(names);
+                closedir(dp);
+                return;
+            }
+            names = tmp;
+        }
+
+        names[count] = strdup(entry->d_name);
+        if (!names[count]) {
+            perror("strdup");
+            for (int i = 0; i < count; ++i) free(names[i]);
+            free(names);
+            closedir(dp);
+            return;
+        }
+
+        int len = (int)strlen(names[count]);
+        if (len > max_len) max_len = len;
+        count++;
     }
 
-    if (errno != 0)
-    {
+    if (errno != 0) {
         perror("readdir failed");
     }
-
     closedir(dp);
+
+    if (count == 0) {
+        free(names);
+        return;
+    }
+
+    /* Sort names alphabetically for consistent output */
+    qsort(names, count, sizeof(char *), name_cmp);
+
+    /* Determine terminal width and column layout */
+    int term_width = get_terminal_width();
+    const int spacing = 2;
+    int col_width = max_len + spacing;
+    if (col_width <= 0) col_width = max_len + 2;
+
+    int cols = term_width / col_width;
+    if (cols < 1) cols = 1;
+    if (cols > count) cols = count;
+
+    int rows = (count + cols - 1) / cols; /* ceil(count / cols) */
+
+    /* Print in "down then across" order:
+       iterate rows 0..rows-1, for each row print names[row + col*rows] for col=0..cols-1 if index < count
+    */
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            int idx = c * rows + r;
+            if (idx >= count) continue;
+
+            /* For last column don't pad to avoid trailing spaces */
+            if (c == cols - 1) {
+                printf("%s", names[idx]);
+            } else {
+                /* left-justify within col_width */
+                printf("%-*s", col_width, names[idx]);
+            }
+        }
+        printf("\n");
+    }
+
+    /* Free memory */
+    for (int i = 0; i < count; ++i) free(names[i]);
+    free(names);
 }
 
 void print_long_format(const char *path, const char *filename)
