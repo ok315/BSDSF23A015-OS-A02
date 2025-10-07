@@ -105,3 +105,82 @@ If -x is active → program calls print_horizontal() for left-to-right display.
 Otherwise → program calls the default vertical printing (print_vertical() or similar logic).
 
 This structure allows the program to decide dynamically which function to execute based on the active display flag, keeping the code clean and modular.
+
+## Feature 5: Alphabetical Sorting
+
+### 1: Why is it necessary to read all directory entries into memory before you can sort them?
+
+When you perform alphabetical sorting using qsort() (or any sorting algorithm), you need all items (in this case, filenames) available in memory because sorting works by comparing and rearranging elements.
+If you tried to sort while reading directly from the directory stream, you wouldn’t have access to all entries at once — you only get one entry per call to readdir(). So, to sort:
+
+You first read all entries (e.g., filenames) using readdir() and store them in an array.
+
+Then you apply qsort() on that array.
+
+Finally, you print them in sorted order.
+
+⚠️ Potential Drawbacks:
+
+Memory Usage:
+If a directory contains millions of files, all filenames must be stored in memory. This can consume a huge amount of RAM.
+
+Performance Overhead:
+Sorting a massive number of entries takes significant time (O(n log n) complexity).
+
+Scalability Issue:
+On systems with limited memory, the program could crash or slow down due to lack of available space.
+
+I/O Delay:
+Reading millions of entries first means you delay showing any output until everything is loaded and sorted.
+
+🧠 Example Summary (for your report):
+
+It is necessary to read all directory entries into memory before sorting because sorting requires access to the complete list of items to compare and arrange them.
+The drawback is that for directories with millions of files, this approach can consume large amounts of memory, reduce performance, and may not scale efficiently on systems with limited resources.
+
+### 2. Explain the purpose and signature of the comparison function required by qsort(). How does it work, and why must it take const void * arguments?
+
+✅ Explanation:
+
+The qsort() function in C is a generic sorting function.
+It doesn’t know what type of data you’re sorting (strings, integers, structs, etc.), so it requires a comparison function to decide the order of elements.
+
+🧾 Function Signature:
+int compare(const void *a, const void *b);
+
+💡 How it Works:
+
+The compare function is called repeatedly by qsort() to determine the order of elements.
+
+Inside it, you cast the void pointers to the actual data type you’re sorting.
+
+It should return:
+
+< 0 if the first element should come before the second
+
+0 if they are equal
+
+> 0 if the first element should come after the second
+
+🧩 Example:
+
+For sorting an array of strings (filenames):
+
+int compare(const void *a, const void *b) {
+    const char *strA = *(const char **)a;
+    const char *strB = *(const char **)b;
+    return strcmp(strA, strB);
+}
+
+🧠 Why const void *:
+
+void * allows the comparison function to be generic, so qsort() can sort any type of data.
+
+const means the comparison function cannot modify the actual data being compared — it only reads them to decide order.
+
+✅ Example Summary (for your report):
+
+The comparison function tells qsort() how to order two elements.
+Its signature int compare(const void *a, const void *b) allows generic sorting of any data type.
+The parameters are const void * because they represent pointers to constant data of unknown type, ensuring the comparison function does not alter the data.
+The function returns a negative value if a < b, zero if equal, and positive if a > b.
