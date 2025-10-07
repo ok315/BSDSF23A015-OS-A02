@@ -1,9 +1,10 @@
 /*
- * Programming Assignment 02: ls-v1.3.0
+ * Programming Assignment 02: ls-v1.4.0
  * Features:
  *  - v1.1.0: Long listing (-l)
  *  - v1.2.0: Multi-column (default)
  *  - v1.3.0: Horizontal listing (-x)
+ *  - v1.4.0: Alphabetical sorting (default, -l, and -x) — locale-aware
  */
 
 #define _XOPEN_SOURCE 700
@@ -21,14 +22,17 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <sys/ioctl.h>
+#include <locale.h>    /* added for setlocale() and strcoll() */
 
 int long_listing = 0;
 int horizontal_listing = 0;
 
+/* Function Declarations */
 void do_ls(const char *dir);
 void print_long_format(const char *path, const char *filename);
 bool is_dir(const char *path);
 
+/* Get file type character */
 char file_type_char(mode_t mode) {
     if (S_ISREG(mode)) return '-';
     if (S_ISDIR(mode)) return 'd';
@@ -40,6 +44,7 @@ char file_type_char(mode_t mode) {
     return '?';
 }
 
+/* Format file permissions (e.g., rwxr-xr-x) */
 void format_permissions(mode_t mode, char out[11]) {
     out[0] = file_type_char(mode);
     out[1] = (mode & S_IRUSR) ? 'r' : '-';
@@ -54,12 +59,14 @@ void format_permissions(mode_t mode, char out[11]) {
     out[10] = '\0';
 }
 
-static int name_cmp(const void *a, const void *b) {
+/* Comparison function for qsort() — locale-aware alphabetical sort using strcoll */
+int compare_names(const void *a, const void *b) {
     const char * const *sa = a;
     const char * const *sb = b;
-    return strcmp(*sa, *sb);
+    return strcoll(*sa, *sb);
 }
 
+/* Get terminal width for column formatting */
 static int get_terminal_width(void) {
     struct winsize ws;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0)
@@ -67,13 +74,16 @@ static int get_terminal_width(void) {
     return 80;
 }
 
+/* Horizontal printing for -x flag */
 void print_horizontal(char **names, int count) {
     int term_width = get_terminal_width();
     int max_len = 0;
+
     for (int i = 0; i < count; ++i) {
         int len = strlen(names[i]);
         if (len > max_len) max_len = len;
     }
+
     int spacing = 2;
     int used = 0;
 
@@ -93,6 +103,7 @@ void print_horizontal(char **names, int count) {
     printf("\n");
 }
 
+/* Main directory listing function */
 void do_ls(const char *dir) {
     DIR *dp = opendir(dir);
     if (!dp) {
@@ -110,8 +121,9 @@ void do_ls(const char *dir) {
         return;
     }
 
+    /* Read directory entries into array */
     while ((entry = readdir(dp))) {
-        if (entry->d_name[0] == '.') continue;
+        if (entry->d_name[0] == '.') continue; // skip hidden files
         if (count >= cap) {
             cap *= 2;
             char **tmp = realloc(names, cap * sizeof(char *));
@@ -126,22 +138,28 @@ void do_ls(const char *dir) {
     }
     closedir(dp);
 
-    qsort(names, count, sizeof(char *), name_cmp);
+    /* If there are names, sort them before displaying */
+    if (count > 0) {
+        qsort(names, count, sizeof(char *), compare_names);
+    }
 
+    /* Display output depending on mode */
     if (long_listing) {
         for (int i = 0; i < count; ++i)
             print_long_format(dir, names[i]);
     } else if (horizontal_listing) {
         print_horizontal(names, count);
     } else {
-        /* default multi-column (down-then-across) */
+        /* Default: down-then-across */
         int term_width = get_terminal_width();
         int max_len = 0;
         for (int i = 0; i < count; ++i)
             if ((int)strlen(names[i]) > max_len)
                 max_len = strlen(names[i]);
+
         int spacing = 2;
         int col_width = max_len + spacing;
+        if (col_width <= 0) col_width = max_len + 2;
         int cols = term_width / col_width;
         if (cols < 1) cols = 1;
         if (cols > count) cols = count;
@@ -157,16 +175,19 @@ void do_ls(const char *dir) {
         }
     }
 
+    /* Free memory */
     for (int i = 0; i < count; ++i) free(names[i]);
     free(names);
 }
 
+/* Check if path is a directory */
 bool is_dir(const char *path) {
     struct stat st;
     if (lstat(path, &st) == -1) return false;
     return S_ISDIR(st.st_mode);
 }
 
+/* Print long listing (-l) details */
 void print_long_format(const char *path, const char *filename) {
     struct stat st;
     char full[PATH_MAX];
@@ -191,7 +212,11 @@ void print_long_format(const char *path, const char *filename) {
     printf("%s %s\n", timebuf, filename);
 }
 
+/* Parse command line options and start ls */
 int main(int argc, char *argv[]) {
+    /* respect user's locale for sorting rules (LC_COLLATE) */
+    setlocale(LC_COLLATE, "");
+
     int opt;
     while ((opt = getopt(argc, argv, "lx")) != -1) {
         if (opt == 'l')
